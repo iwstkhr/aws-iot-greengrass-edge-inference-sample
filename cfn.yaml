@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS IoT Greengrass V2 edge AI inference sample
+
+Parameters:
+  GreengrassCoreSetupIamUserName:
+    Type: String
+    Default: greengrass-core-setup-user
+  MlModelArtifactsS3BucketName:
+    Type: String
+    Default: sagemaker-ml-model-artifacts
+  SageMakerExecutionIamRoleName:
+    Type: String
+    Default: sagemaker-execution-role
+  GreengrassV2TokenExchangeRoleName:
+    Type: String
+    Default: GreengrassV2TokenExchangeRole
+
+Resources:
+  GreengrassCoreSetupIamUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref GreengrassCoreSetupIamUserName
+      Policies:
+        - PolicyName: policy1
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CreateTokenExchangeRole
+                Effect: Allow
+                Action:
+                  - iam:AttachRolePolicy
+                  - iam:CreatePolicy
+                  - iam:CreateRole
+                  - iam:GetPolicy
+                  - iam:GetRole
+                  - iam:PassRole
+                Resource:
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/GreengrassV2TokenExchangeRole
+                  - !Sub arn:aws:iam::${AWS::AccountId}:policy/GreengrassV2TokenExchangeRoleAccess
+              - Sid: CreateIoTResources
+                Effect: Allow
+                Action:
+                  - iot:AddThingToThingGroup
+                  - iot:AttachPolicy
+                  - iot:AttachThingPrincipal
+                  - iot:CreateKeysAndCertificate
+                  - iot:CreatePolicy
+                  - iot:CreateRoleAlias
+                  - iot:CreateThing
+                  - iot:CreateThingGroup
+                  - iot:DescribeEndpoint
+                  - iot:DescribeRoleAlias
+                  - iot:DescribeThingGroup
+                  - iot:GetPolicy
+                Resource: '*'
+              - Sid: DeployDevTools
+                Effect: Allow
+                Action:
+                  - greengrass:CreateDeployment
+                  - iot:CancelJob
+                  - iot:CreateJob
+                  - iot:DeleteThingShadow
+                  - iot:DescribeJob
+                  - iot:DescribeThing
+                  - iot:DescribeThingGroup
+                  - iot:GetThingShadow
+                  - iot:UpdateJob
+                  - iot:UpdateThingShadow
+                Resource: '*'
+
+  SageMakerExecutionIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref SageMakerExecutionIamRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: greengrass-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - greengrass:CreateComponentVersion
+                  - greengrass:DescribeComponent
+                Resource: !Sub arn:aws:greengrass:*:${AWS::AccountId}:components:*
+
+  GreengrassV2TokenExchangeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref GreengrassV2TokenExchangeRoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: credentials.iot.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: s3-policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub ${MlModelArtifactsS3Bucket.Arn}/*
+
+  GreengrassV2TokenExchangeRoleAccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: GreengrassV2TokenExchangeRoleAccess
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - logs:DescribeLogStreams
+              - s3:GetBucketLocation
+            Resource: "*"
+      Roles:
+        - !Ref GreengrassV2TokenExchangeRole
+
+  MlModelArtifactsS3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub ${MlModelArtifactsS3BucketName}-${AWS::AccountId}-${AWS::Region}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
